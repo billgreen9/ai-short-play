@@ -1,8 +1,0 @@
-{
-  "user_input": "把林晚的声音换成沈衡",
-  "artifacts": {
-    "ingest-source-video": {"source_url": "https://cdn.demo/a.mp4", "asset_id": "src-demo"}
-  },
-  "from_character": "林晚",
-  "to_character": "沈衡"
-}

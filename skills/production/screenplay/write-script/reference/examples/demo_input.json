@@ -1,7 +1,0 @@
-{
-  "user_input": "写第1集台本",
-  "artifacts": {
-    "generate-concept": {"title": "职场复仇"},
-    "write-outline": {"episodes": [{"episode": 1, "title": "第1集 被夺"}]}
-  }
-}

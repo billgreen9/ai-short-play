@@ -1,7 +1,0 @@
-{
-  "user_input": "写职场复仇短剧大纲",
-  "artifacts": {
-    "generate-concept": {"title": "职场复仇", "episode_count": 8},
-    "build-profiles": {"characters": [{"name": "林晚", "role": "女主"}]}
-  }
-}
