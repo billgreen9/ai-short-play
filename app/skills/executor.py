@@ -12,15 +12,34 @@ from app.tools import openai_tools_and_handlers
 from app.tools.registry import resolve_tools
 
 
-def _build_prompt(skill: SkillRecord, user_input: str, artifacts: dict[str, Any]) -> str:
-    artifact_text = json.dumps(artifacts, ensure_ascii=False, default=str) if artifacts else "{}"
-    return (
-        f"当前技能：{skill.skill_name}\n"
-        f"技能说明：{skill.description}\n"
-        f"用户输入：{user_input}\n"
-        f"上游产物：{artifact_text}\n"
-        "请完成当前技能。若已注册 function tools，需要结构化结果时调用 save_result。"
-    )
+def build_skill_messages(
+    skill: SkillRecord,
+    *,
+    user_input: str,
+    artifacts: dict[str, Any],
+    has_tools: bool,
+) -> list[dict[str, Any]]:
+    """结构化 chat messages：用户原话单独作为 user，技能说明与上游产物放在 system。"""
+    system_parts: list[str] = []
+    if skill.skill_prompt.strip():
+        system_parts.append(skill.skill_prompt.strip())
+    system_parts.append(f"当前技能：{skill.skill_name}")
+    if skill.description.strip():
+        system_parts.append(f"技能说明：{skill.description.strip()}")
+    if has_tools:
+        system_parts.append(
+            "已注册 function tools。需要结构化结果时调用 save_result；读取上游产物时调用 get_artifact。"
+        )
+    else:
+        system_parts.append("请完成当前技能并直接给出结果。")
+    if artifacts:
+        system_parts.append(
+            "上游产物（JSON）：\n" + json.dumps(artifacts, ensure_ascii=False, default=str)
+        )
+    return [
+        {"role": "system", "content": "\n\n".join(system_parts)},
+        {"role": "user", "content": user_input},
+    ]
 
 
 @traceable(name="execute_skill", run_type="chain")
@@ -46,9 +65,14 @@ def execute_skill(
         if tool_names:
             resolve_tools(skill.function_tools)
             tools, handlers = openai_tools_and_handlers(skill.function_tools)
+        messages = build_skill_messages(
+            skill,
+            user_input=user_input,
+            artifacts=artifacts,
+            has_tools=bool(tool_names),
+        )
         result = complete_with_tools(
-            _build_prompt(skill, user_input, artifacts),
-            system=skill.skill_prompt or None,
+            messages,
             tools=tools,
             handlers=handlers,
         )
@@ -58,6 +82,15 @@ def execute_skill(
                 step_index=step_index,
                 status="error",
                 error=str(result["error"]),
+                tools=tool_names,
+            )
+        content = result.get("content")
+        if runtime.saved_result is None and not (isinstance(content, str) and content.strip()):
+            return StepResult(
+                skill_name=skill.skill_name,
+                step_index=step_index,
+                status="error",
+                error=str(result.get("error") or "大模型未返回内容"),
                 tools=tool_names,
             )
         output = runtime.saved_result or {"text": result.get("content") or ""}

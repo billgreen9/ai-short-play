@@ -5,7 +5,8 @@ import json
 import sys
 
 from app.db import fetch_skill_by_name, init_schema, list_skills, load_run
-from app.graph.workflow import run_task
+from app.graph.confirm import format_confirm_prompt, interrupt_value
+from app.graph.workflow import resume_task, run_task
 from app.matching import match_intent
 from app.skills.dag import expand_skill_dag
 from app.skills.seed import seed_default_skills
@@ -113,10 +114,17 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     result = run_task(args.query, force_skill=args.use_skill)
+    payload = interrupt_value(result)
+    if payload:
+        print(format_confirm_prompt(payload))
+        if not sys.stdin.isatty():
+            print(f"\n图已暂停，等待用户输入。run_id={result.get('run_id')}")
+            print(f"\n{tracing_status_line()}")
+            return 0
+        chosen = input().strip()
+        result = resume_task(str(result["run_id"]), chosen, user_input=args.query)
     print(result.get("final_output") or "")
     print(f"\n{tracing_status_line()}")
-    if result.get("match_status") == "need_confirm":
-        return 0
     if result.get("error"):
         print(f"\n[error] {result['error']}", file=sys.stderr)
         return 1

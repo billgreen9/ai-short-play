@@ -7,14 +7,16 @@
 ```text
 用户输入
   → intent_match：关键词检索 + 语义检索 → 按 skill_id 去重（留最高分）→ rerank
-  → 按分数分档：自动命中 / 用户确认 / 未命中 / 无 skill 应答
-  → 命中 skill 后递归展开 depends_on，得到执行 DAG
+  → 只要匹配到 skill，先暂停等用户确认（确认前不调用执行大模型）
+  → 用户确认后递归展开 depends_on，得到执行 DAG
   → 按拓扑顺序执行每个 skill（带 skill_prompt；function_tools 非空则注册工具）
   → 上游产物写入内存 artifacts，只向下游传递
   → 汇总输出，写入 runs / run_steps
 ```
 
-LangGraph 节点：`match → execute（循环）→ assemble`。Checkpoint 和业务表在同一套 Postgres。
+LangGraph 节点：`match → confirm（interrupt 等确认）→ execute（循环）→ assemble`。Checkpoint 和业务表在同一套 Postgres。
+
+`--use-skill` 跳过匹配和确认，直接执行。普通请求在 rerank 之后一定会 `interrupt()`：**invoke 立即返回，确认前不会调用 skill 执行大模型**。CLI 在本地等输入，续跑再开一条 LangSmith trace。rerank 用的是匹配阶段的小请求；执行大模型只在确认之后。
 
 ## 意图匹配
 
@@ -25,13 +27,12 @@ LangGraph 节点：`match → execute（循环）→ assemble`。Checkpoint 和�
 3. 合并召回后，按 `skill_id` 去重，同一 skill 只保留分值最大的一条（`skill_id` 为空的应答行不去重）
 4. 再 LLM rerank
 5. 用**该条意图自己的**阈值分档：
-   - `score > score_limit`：自动命中
-   - `score_confirm_limit < score <= score_limit`：把这些 skill 交给用户确认，不执行
+   - `score > score_limit` 或落在确认区间：列出候选，**先等用户确认，再调用执行大模型**
    - 其余：未命中
 
 命中后：
 
-- `skill_id` 不为空：使用该 skill，并展开依赖 DAG
+- `skill_id` 不为空：先确认，再展开依赖 DAG 并调用执行大模型
 - `skill_id` 为空：直接返回 `answer`（`support=1` 系统相关，`support=0` 与本系统无关）
 
 新增 skill 时，会把 `description` 作为 `msg` 插入 `intent_match`，并调用向量模型写入 `msg_embedding`。也可以再追加短口语句，提高关键词命中。
@@ -58,7 +59,7 @@ generate_concept → build_profiles → write_outline → write_script → quali
 
 ```text
 A.save_result() → artifacts["A"]
-B 执行时读取 artifacts["A"]（prompt 里的「上游产物」，或 get_artifact）
+B 执行时读取 artifacts["A"]（system 消息里的「上游产物」JSON，或 get_artifact）
 B.save_result() → artifacts["B"]
 C 可以读 A 和 B
 C 的结果不会回到已经结束的 A
@@ -67,7 +68,7 @@ C 的结果不会回到已经结束的 A
 实现要点：
 
 - 每个 skill `save_result` 后，产物写入内存 `artifacts[skill_name]`
-- 下游执行时，已完成产物会放进 prompt；注册了 `get_artifact` 时也可以按 skill 名读取
+- 下游执行时，已完成产物会放进 system 消息；注册了 `get_artifact` 时也可以按 skill 名读取
 - 上游跑完即结束，不会等待下游，也不会被再次唤醒
 - 下游不能回写、覆盖或回调上游 skill
 
@@ -77,8 +78,15 @@ C 的结果不会回到已经结束的 A
 
 执行某个 skill 前先看 `function_tools` 是否为空：
 
-- 为空：只带 `skill_prompt` 请求大模型
-- 非空：把对应 function tool 注册进本次请求，进入工具循环
+- 为空：用结构化 messages 请求大模型
+- 非空：同样用 messages，并把对应 function tool 注册进本次请求，进入工具循环
+
+`execute_skill` 不再把用户输入拼进一段 prompt。调用大模型时使用 OpenAI 风格的 `messages`：
+
+| role | 内容 |
+| --- | --- |
+| `system` | `skill_prompt`、技能名/说明、工具使用提示、上游产物 JSON |
+| `user` | 用户原话（不做二次包装） |
 
 内置工具：
 
@@ -132,7 +140,7 @@ python -m app --use-skill build_profiles "只要人物小传"
 python -m app --add-skill --name demo --description "演示技能" --prompt "你是助手" --tools save_result
 ```
 
-分数落在确认区间时不会自动执行，用 `--use-skill <skill_name>` 显式跑该技能及其依赖。
+交互运行时，分数落在确认区间会**暂停并等待你输入** skill 名或序号（`skip` 取消）。`--use-skill` 仍可跳过匹配、直接执行。
 
 ## LangSmith
 

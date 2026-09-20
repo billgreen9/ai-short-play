@@ -24,6 +24,14 @@ def test_lexical_score_prefers_short_utterance_covered_by_query():
     assert lexical_score("只要人物小传", "写人物小传") >= 0.5
 
 
+def test_message_text_reads_reasoning_when_content_null():
+    from app.llm import message_text
+
+    assert message_text({"content": None, "reasoning_content": "应选 create_short_play"}) == "应选 create_short_play"
+    assert message_text({"content": [{"type": "text", "text": "hello"}]}) == "hello"
+    assert message_text({"content": None}) is None
+
+
 def test_parse_embedding_supports_openai_and_multimodal_shapes():
     openai = _parse_embedding({"data": [{"embedding": [0.1, 0.2]}]})
     multimodal = _parse_embedding({"data": {"embedding": [0.3, 0.4]}})

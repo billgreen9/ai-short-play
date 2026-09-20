@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     hybrid_keyword_weight: float = 0.4
     llm_rerank_weight: float = 0.7
     llm_timeout_seconds: float = 120.0
+    llm_rerank_timeout_seconds: float = 20.0
     max_tool_rounds: int = 8
     langsmith_tracing: bool = Field(
         default=True,

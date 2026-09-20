@@ -318,8 +318,21 @@ def create_run(run_id: str, user_input: str) -> None:
             """
             INSERT INTO runs (id, user_input, status)
             VALUES (%s, %s, 'running')
+            ON CONFLICT (id) DO NOTHING
             """,
             (run_id, user_input),
+        )
+
+
+def update_run_status(run_id: str, status: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE runs
+            SET status = %s
+            WHERE id = %s
+            """,
+            (status, run_id),
         )
 
 

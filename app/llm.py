@@ -31,10 +31,10 @@ def _timeout() -> float:
     return get_settings().llm_timeout_seconds
 
 
-def _post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
+def _post(path: str, payload: dict[str, Any], *, timeout: float | None = None) -> dict[str, Any]:
     settings = get_settings()
     url = settings.openai_base_url.rstrip("/") + path
-    with httpx.Client(timeout=_timeout()) as client:
+    with httpx.Client(timeout=timeout or _timeout()) as client:
         response = client.post(url, headers=_headers(), json=payload)
         response.raise_for_status()
         return response.json()
@@ -42,6 +42,36 @@ def _post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 def _post_chat(payload: dict[str, Any]) -> dict[str, Any]:
     return _post("/chat/completions", payload)
+
+
+def message_text(message: dict[str, Any] | None) -> str | None:
+    """豆包等模型经常 content=null，正文在 reasoning_content 或 content 数组里。"""
+    if not message:
+        return None
+    text = _content_to_text(message.get("content"))
+    if text:
+        return text
+    reasoning = message.get("reasoning_content")
+    if isinstance(reasoning, str) and reasoning.strip():
+        return reasoning.strip()
+    return None
+
+
+def _content_to_text(content: object) -> str | None:
+    if isinstance(content, str) and content.strip():
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str) and item.strip():
+                parts.append(item)
+            elif isinstance(item, dict):
+                piece = item.get("text") or item.get("content")
+                if isinstance(piece, str) and piece.strip():
+                    parts.append(piece)
+        if parts:
+            return "\n".join(parts)
+    return None
 
 
 def _parse_embedding(data: dict[str, Any]) -> list[float] | None:
@@ -94,6 +124,7 @@ def complete(
     *,
     system: str | None = None,
     temperature: float = 0.4,
+    timeout: float | None = None,
 ) -> str | None:
     if not llm_enabled():
         return None
@@ -102,20 +133,27 @@ def complete(
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
     try:
-        data = _post_chat(
+        data = _post(
+            "/chat/completions",
             {
                 "model": get_settings().openai_model,
                 "temperature": temperature,
                 "messages": messages,
-            }
+            },
+            timeout=timeout,
         )
     except httpx.HTTPError:
         return None
-    return data["choices"][0]["message"].get("content")
+    return message_text(data["choices"][0]["message"])
 
 
-def complete_json(prompt: str, *, system: str | None = None) -> dict[str, Any] | None:
-    text = complete(prompt, system=system, temperature=0.1)
+def complete_json(
+    prompt: str,
+    *,
+    system: str | None = None,
+    timeout: float | None = None,
+) -> dict[str, Any] | None:
+    text = complete(prompt, system=system, temperature=0.1, timeout=timeout)
     if not text:
         return None
     text = text.strip()
@@ -140,20 +178,18 @@ def complete_json(prompt: str, *, system: str | None = None) -> dict[str, Any] |
 
 @traceable(name="llm.complete_with_tools", run_type="llm")
 def complete_with_tools(
-    prompt: str,
+    messages: list[dict[str, Any]],
     *,
-    system: str | None = None,
     tools: list[dict[str, Any]] | None = None,
     handlers: dict[str, ToolHandler] | None = None,
     temperature: float = 0.4,
 ) -> dict[str, Any]:
-    """调用大模型；若注册了 function tools，则执行工具循环。"""
+    """用结构化 messages 调用大模型；若注册了 function tools，则执行工具循环。"""
     if not llm_enabled():
         return {"content": None, "tool_trace": []}
-    messages: list[dict[str, Any]] = []
-    if system:
-        messages.append({"role": "system", "content": system})
-    messages.append({"role": "user", "content": prompt})
+    if not messages:
+        return {"content": None, "tool_trace": [], "error": "messages 不能为空"}
+    history: list[dict[str, Any]] = [dict(item) for item in messages]
     settings = get_settings()
     tool_trace: list[dict[str, Any]] = []
     payload_tools = tools or None
@@ -161,7 +197,7 @@ def complete_with_tools(
         payload: dict[str, Any] = {
             "model": settings.openai_model,
             "temperature": temperature,
-            "messages": messages,
+            "messages": history,
         }
         if payload_tools:
             payload["tools"] = payload_tools
@@ -172,8 +208,15 @@ def complete_with_tools(
         message = data["choices"][0]["message"]
         tool_calls = message.get("tool_calls") or []
         if not tool_calls:
-            return {"content": message.get("content"), "tool_trace": tool_trace}
-        messages.append(message)
+            content = message_text(message)
+            if not content:
+                return {
+                    "content": None,
+                    "tool_trace": tool_trace,
+                    "error": "大模型未返回文本或 tool_calls（content 为 null）",
+                }
+            return {"content": content, "tool_trace": tool_trace}
+        history.append(message)
         for call in tool_calls:
             function = call.get("function") or {}
             name = str(function.get("name") or "")
@@ -191,7 +234,7 @@ def complete_with_tools(
                 except Exception as exc:  # noqa: BLE001
                     result = {"error": str(exc)}
             tool_trace.append({"name": name, "arguments": args, "result": result})
-            messages.append(
+            history.append(
                 {
                     "role": "tool",
                     "tool_call_id": call.get("id"),

@@ -5,8 +5,8 @@ from uuid import uuid4
 
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph import END, START, StateGraph
-from langgraph.types import RunnableConfig
-from langsmith import traceable, tracing_context
+from langgraph.types import Command, RunnableConfig, interrupt
+from langsmith import tracing_context
 
 from app.config import get_settings
 from app.db import (
@@ -16,7 +16,9 @@ from app.db import (
     init_schema,
     insert_step,
     update_run_plan,
+    update_run_status,
 )
+from app.graph.confirm import candidates_for_confirm, interrupt_payload, pending_interrupts, resolve_choice
 from app.graph.state import AgentState
 from app.matching import match_intent
 from app.skills.dag import expand_skill_dag
@@ -48,7 +50,7 @@ def _match_node(state: AgentState) -> dict[str, Any]:
         }
 
     decision = match_intent(state["user_input"])
-    if decision.status != "matched" or decision.skill is None:
+    if decision.status in {"answer", "unsupported"}:
         update_run_plan(state["run_id"], [], decision.reason)
         return {
             "match_status": decision.status,
@@ -56,16 +58,58 @@ def _match_node(state: AgentState) -> dict[str, Any]:
             "match_score": decision.score,
             "answer": decision.answer or "",
             "plan": [],
-            "confirm_candidates": [item.model_dump() for item in decision.confirm_candidates],
-            "error": "" if decision.status in {"need_confirm", "answer", "unsupported"} else decision.reason,
+            "error": "",
         }
 
-    plan = [item.skill_name for item in expand_skill_dag(decision.skill, fetch_skill_by_name)]
-    update_run_plan(state["run_id"], plan, decision.reason)
+    candidates = candidates_for_confirm(decision)
+    if candidates:
+        update_run_plan(state["run_id"], [], "rerank 完成，等待用户确认后再调用执行大模型")
+        return {
+            "match_status": "need_confirm",
+            "route_reason": "rerank 完成，等待用户确认后再调用执行大模型",
+            "match_score": decision.score,
+            "plan": [],
+            "confirm_candidates": candidates,
+            "error": "",
+        }
+
+    update_run_plan(state["run_id"], [], decision.reason)
     return {
-        "match_status": "matched",
+        "match_status": decision.status,
         "route_reason": decision.reason,
         "match_score": decision.score,
+        "answer": decision.answer or "",
+        "plan": [],
+        "confirm_candidates": [],
+        "error": "" if decision.status in {"need_confirm", "answer", "unsupported"} else decision.reason,
+    }
+
+
+def _confirm_node(state: AgentState) -> dict[str, Any]:
+    update_run_status(state["run_id"], "waiting_confirm")
+    payload = interrupt_payload(state["user_input"], state.get("confirm_candidates") or [])
+    chosen = interrupt(payload)
+    skill_name, error = resolve_choice(chosen, state.get("confirm_candidates") or [])
+    if error or not skill_name:
+        return {
+            "match_status": "unmatched",
+            "route_reason": error or "用户取消确认",
+            "plan": [],
+            "error": error or "用户取消确认",
+        }
+    skill = fetch_skill_by_name(skill_name)
+    if skill is None:
+        return {
+            "match_status": "unmatched",
+            "route_reason": f"确认的技能不存在或已失效: {skill_name}",
+            "plan": [],
+            "error": f"确认的技能不存在或已失效: {skill_name}",
+        }
+    plan = [item.skill_name for item in expand_skill_dag(skill, fetch_skill_by_name)]
+    update_run_plan(state["run_id"], plan, "用户确认后执行")
+    return {
+        "match_status": "matched",
+        "route_reason": "用户确认后执行",
         "plan": plan,
         "current_index": 0,
         "artifacts": {},
@@ -109,13 +153,8 @@ def _assemble_node(state: AgentState) -> dict[str, Any]:
     error = state.get("error") or ""
     chunks: list[str] = [f"任务：{state['user_input']}", f"匹配：{status} / {state.get('route_reason')}"]
     if status == "need_confirm":
-        chunks.append("需要确认的技能：")
-        for item in state.get("confirm_candidates") or []:
-            intent = item.get("intent") or item
-            name = (intent.get("skill_name") if isinstance(intent, dict) else None) or "无 skill"
-            chunks.append(f"- {name}  score={item.get('score')}  msg={intent.get('msg') if isinstance(intent, dict) else ''}")
-        chunks.append("确认后使用：python -m app --use-skill <skill_name> \"原问题\"")
-        run_status = "need_confirm"
+        chunks.append("已暂停，等待用户确认技能。")
+        run_status = "waiting_confirm"
     elif status in {"answer", "unsupported"}:
         chunks.append(state.get("answer") or "")
         run_status = status
@@ -150,7 +189,15 @@ def _format_artifact(value: Any) -> str:
     return str(value)
 
 
-def _after_match(state: AgentState) -> Literal["execute", "assemble"]:
+def _after_match(state: AgentState) -> Literal["confirm", "execute", "assemble"]:
+    if state.get("match_status") == "need_confirm":
+        return "confirm"
+    if state.get("match_status") == "matched" and state.get("plan"):
+        return "execute"
+    return "assemble"
+
+
+def _after_confirm(state: AgentState) -> Literal["execute", "assemble"]:
     if state.get("match_status") == "matched" and state.get("plan"):
         return "execute"
     return "assemble"
@@ -169,16 +216,39 @@ def _after_execute(state: AgentState) -> Literal["execute", "assemble"]:
 def build_graph():
     graph = StateGraph(AgentState)
     graph.add_node("match", _match_node)
+    graph.add_node("confirm", _confirm_node)
     graph.add_node("execute", _execute_node)
     graph.add_node("assemble", _assemble_node)
     graph.add_edge(START, "match")
-    graph.add_conditional_edges("match", _after_match, {"execute": "execute", "assemble": "assemble"})
+    graph.add_conditional_edges(
+        "match",
+        _after_match,
+        {"confirm": "confirm", "execute": "execute", "assemble": "assemble"},
+    )
+    graph.add_conditional_edges("confirm", _after_confirm, {"execute": "execute", "assemble": "assemble"})
     graph.add_conditional_edges("execute", _after_execute, {"execute": "execute", "assemble": "assemble"})
     graph.add_edge("assemble", END)
     return graph
 
 
-@traceable(name="short-play-run", run_type="chain")
+def _invoke(compiled, payload: Any, run_id: str, user_input: str) -> dict[str, Any]:
+    settings = get_settings()
+    config: RunnableConfig = {
+        "configurable": {"thread_id": run_id},
+        "run_name": f"short-play:{user_input[:48]}",
+        "tags": ["ai-short-play", "langgraph"],
+        "metadata": {"run_id": run_id},
+    }
+    with tracing_context(
+        enabled=settings.langsmith_enabled,
+        project_name=settings.langsmith_project,
+    ):
+        result = compiled.invoke(payload, config)
+    if pending_interrupts(result):
+        update_run_status(run_id, "waiting_confirm")
+    return result
+
+
 def run_task(user_input: str, *, force_skill: str | None = None, thread_id: str | None = None) -> dict[str, Any]:
     configure_tracing()
     init_schema()
@@ -201,18 +271,18 @@ def run_task(user_input: str, *, force_skill: str | None = None, thread_id: str 
         "error": "",
     }
     settings = get_settings()
-    config: RunnableConfig = {
-        "configurable": {"thread_id": run_id},
-        "run_name": f"short-play:{user_input[:48]}",
-        "tags": ["ai-short-play", "langgraph"],
-        "metadata": {"run_id": run_id},
-    }
     with PostgresSaver.from_conn_string(settings.postgres_dsn) as checkpointer:
         checkpointer.setup()
         compiled = graph.compile(checkpointer=checkpointer)
-        with tracing_context(
-            enabled=settings.langsmith_enabled,
-            project_name=settings.langsmith_project,
-        ):
-            result = compiled.invoke(initial, config)
-    return result
+        return _invoke(compiled, initial, run_id, user_input)
+
+
+def resume_task(thread_id: str, chosen: str, *, user_input: str = "") -> dict[str, Any]:
+    configure_tracing()
+    init_schema()
+    settings = get_settings()
+    graph = build_graph()
+    with PostgresSaver.from_conn_string(settings.postgres_dsn) as checkpointer:
+        checkpointer.setup()
+        compiled = graph.compile(checkpointer=checkpointer)
+        return _invoke(compiled, Command(resume=chosen), thread_id, user_input or thread_id)

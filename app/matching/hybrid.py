@@ -114,6 +114,7 @@ def _llm_rerank(query: str, hits: list[ScoredIntent]) -> list[ScoredIntent]:
             '只输出 JSON：{"scores": [{"id": 1, "score": 0.0}]}'
         ),
         system="你是技能意图 rerank 器，只打分不解释。",
+        timeout=settings.llm_rerank_timeout_seconds,
     )
     if not payload or not isinstance(payload.get("scores"), list):
         return hits
@@ -179,6 +180,11 @@ def match_intent(query: str, *, use_llm_rerank: bool = True) -> MatchResult:
                 reason="关键词+语义检索后 rerank，分数高于 score_limit",
                 skill=skill,
                 hits=hits,
+                confirm_candidates=[
+                    item
+                    for item in hits
+                    if item.intent.skill_id and item.band in {"matched", "confirm"}
+                ],
             )
         status = "answer" if best.intent.support != 0 else "unsupported"
         return MatchResult(
