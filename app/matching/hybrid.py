@@ -80,6 +80,23 @@ def _merge_rows(
     return hits
 
 
+def dedupe_by_skill_id(hits: list[ScoredIntent]) -> list[ScoredIntent]:
+    """同一 skill_id 只保留分值最大的一条；skill_id 为空的应答行不去重。"""
+    ordered = sorted(hits, key=lambda item: (-item.score, item.intent.id))
+    seen: set[int] = set()
+    unique: list[ScoredIntent] = []
+    for hit in ordered:
+        skill_id = hit.intent.skill_id
+        if skill_id is None:
+            unique.append(hit)
+            continue
+        if skill_id in seen:
+            continue
+        seen.add(skill_id)
+        unique.append(hit)
+    return unique
+
+
 def _llm_rerank(query: str, hits: list[ScoredIntent]) -> list[ScoredIntent]:
     if not hits or not llm_enabled():
         return hits
@@ -136,6 +153,7 @@ def match_intent(query: str, *, use_llm_rerank: bool = True) -> MatchResult:
     embedding = embed_text(query)
     semantic_rows = semantic_search(embedding, settings.match_top_k) if embedding else []
     hits = _merge_rows(query, keyword_rows, semantic_rows, settings.hybrid_keyword_weight)
+    hits = dedupe_by_skill_id(hits)
     if use_llm_rerank:
         hits = _llm_rerank(query, hits)
 

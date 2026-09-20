@@ -103,3 +103,31 @@ def test_add_skill_writes_intent_match(db, monkeypatch):
     assert result.status == "matched"
     assert result.skill is not None
     assert result.skill.id == skill.id
+
+
+def test_same_skill_id_keeps_highest_score_before_rerank(db, monkeypatch):
+    monkeypatch.setattr("app.matching.hybrid.embed_text", lambda query: _unit(0))
+    skill = upsert_skill(
+        skill_name="test_match_concept",
+        description="TOKEN_CONCEPT_XYZ_MATCH",
+        skill_prompt="x",
+        function_tools="",
+    )
+    insert_intent_match(
+        msg="TOKEN_CONCEPT_XYZ_MATCH",
+        embedding=_unit(0),
+        score_limit=0.72,
+        score_confirm_limit=0.4,
+        skill_id=skill.id,
+    )
+    insert_intent_match(
+        msg="unrelated-low-score-utterance",
+        embedding=_unit(8),
+        score_limit=0.72,
+        score_confirm_limit=0.4,
+        skill_id=skill.id,
+    )
+    result = match_intent("TOKEN_CONCEPT_XYZ_MATCH", use_llm_rerank=False)
+    skill_hits = [item for item in result.hits if item.intent.skill_id == skill.id]
+    assert len(skill_hits) == 1
+    assert skill_hits[0].intent.msg == "TOKEN_CONCEPT_XYZ_MATCH"

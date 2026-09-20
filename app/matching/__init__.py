@@ -1,3 +1,3 @@
-from app.matching.hybrid import match_intent
+from app.matching.hybrid import dedupe_by_skill_id, match_intent
 
-__all__ = ["match_intent"]
+__all__ = ["dedupe_by_skill_id", "match_intent"]
