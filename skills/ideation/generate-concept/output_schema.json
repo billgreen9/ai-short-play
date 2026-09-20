@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["title", "genre", "logline", "hook", "episode_count", "core_conflict", "markdown"],
+  "properties": {
+    "title": {"type": "string"},
+    "genre": {"type": "string"},
+    "logline": {"type": "string"},
+    "hook": {"type": "string"},
+    "episode_count": {"type": "integer", "minimum": 6, "maximum": 12},
+    "core_conflict": {"type": "string"},
+    "audience": {"type": "string"},
+    "source": {"type": "string", "enum": ["llm", "template"]},
+    "markdown": {"type": "string"}
+  }
+}

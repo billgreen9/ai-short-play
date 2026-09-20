@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["user_input"],
+  "properties": {
+    "user_input": {"type": "string"},
+    "artifacts": {"type": "object"},
+    "from_character": {"type": "string"},
+    "to_character": {"type": "string"}
+  }
+}

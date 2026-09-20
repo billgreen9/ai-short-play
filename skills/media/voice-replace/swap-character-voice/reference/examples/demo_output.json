@@ -1,0 +1,9 @@
+{
+  "from_character": "林晚",
+  "to_character": "沈衡",
+  "source_url": "https://cdn.demo/a.mp4",
+  "swapped_url": "https://cdn.short-play.local/assets/demo/swapped.mp4",
+  "replaced_segments": 12,
+  "media_job": {"action": "swap_voice", "from_character": "林晚", "to_character": "沈衡"},
+  "markdown": "已替换林晚对白为沈衡声线"
+}

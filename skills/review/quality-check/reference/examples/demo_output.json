@@ -1,0 +1,10 @@
+{
+  "score": 7.5,
+  "issues": [
+    {"type": "hook", "detail": "开场钩子还不够具体"},
+    {"type": "character", "detail": "对手动机偏功能化"}
+  ],
+  "fixes": ["第1集结尾改成原始文件出现在男主办公室"],
+  "source": "template",
+  "markdown": "# 质检意见\n- 分数：7.5/10\n"
+}

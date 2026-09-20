@@ -1,0 +1,27 @@
+{
+  "type": "function",
+  "function": {
+    "name": "quality_check",
+    "description": "审短剧稿件，输出分数、问题类型和修改建议。用户要质检或找问题时调用。",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "score": {"type": "number", "minimum": 0, "maximum": 10},
+        "issues": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["type", "detail"],
+            "properties": {
+              "type": {"type": "string", "description": "issue_types 中的类型"},
+              "detail": {"type": "string"}
+            }
+          }
+        },
+        "fixes": {"type": "array", "items": {"type": "string"}}
+      },
+      "required": ["score", "issues", "fixes"]
+    }
+  }
+}

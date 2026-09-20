@@ -1,0 +1,10 @@
+{
+  "characters": [
+    {"name": "林晚", "role": "女主", "want": "拿回成果", "wound": "被背刺", "trait": "克制精准"},
+    {"name": "沈衡", "role": "男主", "want": "确认判断", "wound": "被同盟利用", "trait": "冷观察"},
+    {"name": "许蔓", "role": "对手", "want": "顶替位置", "wound": "出身焦虑", "trait": "会演"}
+  ],
+  "relationships": ["林晚与许蔓是假姐妹背叛线", "林晚与沈衡后期结盟"],
+  "source": "template",
+  "markdown": "# 《职场复仇》人物\n"
+}

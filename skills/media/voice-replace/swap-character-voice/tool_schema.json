@@ -1,0 +1,16 @@
+{
+  "type": "function",
+  "function": {
+    "name": "swap_character_voice",
+    "description": "指定把哪个角色的声音全部换成哪个角色。用户要换配音时调用。",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from_character", "to_character"],
+      "properties": {
+        "from_character": {"type": "string"},
+        "to_character": {"type": "string"}
+      }
+    }
+  }
+}

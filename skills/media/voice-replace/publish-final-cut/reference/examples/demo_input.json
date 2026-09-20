@@ -1,0 +1,10 @@
+{
+  "user_input": "发布成片",
+  "artifacts": {
+    "swap-character-voice": {
+      "swapped_url": "https://cdn.short-play.local/assets/demo/swapped.mp4",
+      "from_character": "林晚",
+      "to_character": "沈衡"
+    }
+  }
+}

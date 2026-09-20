@@ -1,0 +1,20 @@
+{
+  "type": "function",
+  "function": {
+    "name": "generate_concept",
+    "description": "生成短剧故事核、类型、logline、钩子和集数。用户要立项或写故事概念时调用。",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "title": {"type": "string", "description": "短剧标题，不超过 12 字"},
+        "genre": {"type": "string", "description": "类型，必须来自 genre_list"},
+        "logline": {"type": "string", "description": "一句话故事核"},
+        "hook": {"type": "string", "description": "开场 3 秒钩子"},
+        "episode_count": {"type": "integer", "minimum": 6, "maximum": 12},
+        "core_conflict": {"type": "string", "description": "核心冲突"}
+      },
+      "required": ["title", "genre", "logline", "hook", "episode_count", "core_conflict"]
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "source_url": "https://cdn.demo/a.mp4",
+  "asset_id": "src-demo",
+  "tracks": [{"character": "林晚", "type": "dialogue"}],
+  "media_job": {"action": "ingest", "source_url": "https://cdn.demo/a.mp4"},
+  "markdown": "已登记源视频"
+}

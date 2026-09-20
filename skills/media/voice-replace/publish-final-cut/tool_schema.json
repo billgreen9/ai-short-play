@@ -1,0 +1,14 @@
+{
+  "type": "function",
+  "function": {
+    "name": "publish_final_cut",
+    "description": "发布换声成片，生成可供其他系统读取的成片地址。",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "title": {"type": "string"}
+      }
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["user_input"],
+  "properties": {
+    "user_input": {"type": "string", "minLength": 1},
+    "artifacts": {"type": "object"},
+    "score": {"type": "number"},
+    "issues": {"type": "array"},
+    "fixes": {"type": "array", "items": {"type": "string"}}
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "type": "function",
+  "function": {
+    "name": "write_outline",
+    "description": "生成短剧分集大纲和每集钩子。用户要写剧情结构或分集节拍时调用。",
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "episodes": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 12,
+          "items": {
+            "type": "object",
+            "required": ["episode", "title", "beat", "conflict", "hook"],
+            "properties": {
+              "episode": {"type": "integer"},
+              "title": {"type": "string"},
+              "beat": {"type": "string", "description": "beat_types 中的节拍"},
+              "conflict": {"type": "string"},
+              "hook": {"type": "string"}
+            }
+          }
+        }
+      },
+      "required": ["episodes"]
+    }
+  }
+}
